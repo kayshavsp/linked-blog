@@ -16,11 +16,9 @@ Welcome to the central hub for all backend and lambda documentation. This knowle
 
 ### Core Documentation Sections
 
-- **[[#Requirements]]** - System specifications and feature requirements
 - **[[#Data Structures]]** - Data models and asset system architecture
 - **[[#Database Systems]]** - PostgreSQL and TimescaleDB configurations
 - **[[#Lambda Functions]]** - Serverless function implementations
-- **[[#Testing]]** - Testing procedures and reports
 - **[[#Daily Operations]]** - Task management and daily logs
 - **[[#Notification Services]]** - Communication systems
 
@@ -104,15 +102,18 @@ _Communication and alerting systems_
 
 ```mermaid
 graph TB
-    A[Frontend Applications] --> B[Load Balancer]
-    B --> C[Backend Services]
-    C --> D[Lambda Functions]
-    C --> E[PostgreSQL Database]
-    C --> F[TimescaleDB]
+    A[IotWatt Frontend] --> B[Load Balancer]
+    B --> C[IotWatt Backend]
+    B --> D[Database]
+    D --> Y[IotWatt Data Analytics]
+    Y --> L[Lambda Functions]
+    D --> E[PostgreSQL]
     G[MQTT Broker] --> H[Kinesis Streams]
-    H --> D
-    D --> I[Notification Services]
-    I --> J[Telegram Bot]
+    H --> F[TimescaleDB]
+    F --> E
+    L --> I[Notification Service]
+    L --> J[Telegram Bot]
+    I --> J
 ```
 
 ---
