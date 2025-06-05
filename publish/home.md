@@ -26,18 +26,6 @@ Welcome to the central hub for all backend and lambda documentation. This knowle
 
 ---
 
-## 📋 Requirements
-
-_System specifications and feature documentation_
-
-- [[Requirements/Demand Control]] - Load management and control systems
-- [[Requirements/Watt Report - Optimization]] - Energy optimization reporting
-- [[Requirements/MQTT Kinesis]] - Real-time data streaming requirements
-- [[Requirements/Device Parameters]] - Device configuration specifications
-- [[Requirements/Advanced Asset System]] - Advanced asset management features
-
----
-
 ## 🏗️ Data Structures
 
 _Core data models and system architecture_
@@ -61,7 +49,6 @@ _Time-series database configurations and optimizations_
 _Relational database setup and extensions_
 
 - [[Postgresql/Database Setup]] - Initial database configuration
-- [[Postgresql/Environment Variables]] - Environment configuration management
 - [[Postgresql/PG_Cron Extension]] - Scheduled job management
 - [[Postgresql/Foreign Data Wrappers (FDW)]] - External data integration
 
@@ -75,15 +62,6 @@ _Serverless function implementations and configurations_
 - [[Lambdas/Device Parameters]] - Device configuration management
 - [[Lambdas/Parameter Map]] - Parameter mapping and transformation
 - [[Lambdas/Watt Report (Optimization)]] - Energy optimization reporting lambda
-
----
-
-## 🧪 Testing
-
-_Testing procedures and quality assurance_
-
-- [[Testing/Testing Function]] - Testing framework and methodologies
-- [[Testing/Testing Report]] - Test results and analysis
 
 ---
 
