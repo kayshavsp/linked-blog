@@ -67,10 +67,7 @@ _Serverless function implementations and configurations_
 
 _Task management and operational logs_
 
-- [[Daily Tasks/Task Backlog]] - Current task queue and priorities
-- [[Daily Tasks/2025-06-05]] - Latest daily log
-- [[Daily Tasks/2025-06-04]] - Previous day activities
-- [[Daily Tasks/2025-05-29]] - Historical task records
+- [[Requirements/Task Backlog]] - Current task queue and priorities
 
 ---
 
@@ -171,4 +168,3 @@ For questions about this documentation or the systems it describes:
 
 _Last reviewed: June 2025_  
 _Documentation version: 1.0_
-```
