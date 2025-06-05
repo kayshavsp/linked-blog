@@ -2,7 +2,6 @@
 title: IotWatt Backend & Lambda Documentation Hub
 excerpt: Comprehensive IotWatt documentation for backend systems, lambda functions, and data infrastructure. Central hub covering system requirements, database configurations, serverless implementations, and testing procedures.
 ---
----
 # Backend & Lambda Documentation Hub
 ![[Iotwatt_logo.png]]
 > **Comprehensive documentation for backend systems, lambda functions, and data infrastructure**  
