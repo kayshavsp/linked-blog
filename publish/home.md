@@ -171,13 +171,4 @@ For questions about this documentation or the systems it describes:
 
 _Last reviewed: June 2025_  
 _Documentation version: 1.0_
-
-```
-title: "IotWatt Backend & Lambda Documentation Hub"
-excerpt: "Comprehensive IotWatt documentation for backend systems, lambda functions, and data infrastructure. Central hub covering system requirements, database configurations, serverless implementations, and testing procedures."
-date: "2025-06-05"
-author:
-	name: "IotWatt Development Team"
-ogImage:
-	url: "http://dev.iotwatt.io/src/assets/Iotwatt_logo.png"
 ```
