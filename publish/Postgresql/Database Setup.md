@@ -63,8 +63,6 @@ I have Downloaded [dvdrental](https://www.postgresqltutorial.com/postgresql-get
 
 	`sudo -u postgres psql`
 
-
-
 ### Check Database
 
 Copy data to your server
@@ -75,4 +73,21 @@ Check database status
 
 	sudo systemctl status postgresql
 
+Check active database process
+```sql
+SELECT 
+    pid,
+    usename,
+    application_name,
+    client_addr,
+    state,
+    query_start,
+    state_change,
+    query
+FROM pg_stat_activity 
+WHERE state = 'active';
+```
 
+Kill database process with pid
+
+	SELECT pg_terminate_backend(<PID VALUE HERE>);

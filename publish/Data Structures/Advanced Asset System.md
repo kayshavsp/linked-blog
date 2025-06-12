@@ -1,620 +1,596 @@
 # Database Design: Asset-Device Hierarchical Mapping System for React Flow
 
-## 1. New Tables Design
-
-### 1.1 Asset-Device Junction Table
-
 ```sql
--- Junction table for many-to-many relationship between assets and devices
-CREATE TABLE iot_data.asset_devices (
+-- =====================================================
+-- COMPREHENSIVE IOT ENERGY MANAGEMENT DATABASE SCHEMA
+-- WITH REACT FLOW INTEGRATION
+-- =====================================================
+
+-- 1. JUNCTION TABLES FOR MANY-TO-MANY RELATIONSHIPS
+-- =====================================================
+
+-- Asset-Device Many-to-Many Relationship
+CREATE TABLE client_data.asset_devices (
     asset_device_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    asset_id UUID NOT NULL REFERENCES client_data.assets(asset_id) ON DELETE CASCADE,
-    device_id TEXT NOT NULL REFERENCES iot_data.redshift_devices(device_id) ON DELETE CASCADE,
-    is_primary BOOLEAN DEFAULT false, -- Indicates if this is the primary asset for the device
-    role VARCHAR(100), -- Role of device in this asset (e.g., 'main_incomer', 'backup_feeder', 'load')
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    asset_id UUID NOT NULL,
+    device_id TEXT NOT NULL,
+    role VARCHAR(100), -- 'primary', 'secondary', 'backup', etc.
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     
-    UNIQUE(asset_id, device_id)
+    CONSTRAINT fk_asset_devices_asset 
+        FOREIGN KEY (asset_id) REFERENCES client_data.assets(asset_id) ON DELETE CASCADE,
+    CONSTRAINT fk_asset_devices_device 
+        FOREIGN KEY (device_id) REFERENCES iot_data.redshift_devices(device_id) ON DELETE CASCADE,
+    
+    -- Ensure unique asset-device combinations
+    CONSTRAINT uk_asset_devices_asset_device UNIQUE (asset_id, device_id)
 );
 
--- Indexes for performance
-CREATE INDEX idx_asset_devices_asset_id ON iot_data.asset_devices(asset_id);
-CREATE INDEX idx_asset_devices_device_id ON iot_data.asset_devices(device_id);
-CREATE INDEX idx_asset_devices_primary ON iot_data.asset_devices(asset_id, is_primary) WHERE is_primary = true;
-```
-
-### 1.2 Device Connections Table
-
-```sql
--- Device-to-device connections with hierarchical information
-CREATE TABLE iot_data.device_connections (
+-- Device-to-Device Connection Network
+CREATE TABLE client_data.device_connections (
     connection_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    parent_device_id TEXT NOT NULL REFERENCES iot_data.redshift_devices(device_id) ON DELETE CASCADE,
-    child_device_id TEXT NOT NULL REFERENCES iot_data.redshift_devices(device_id) ON DELETE CASCADE,
-    asset_id UUID NOT NULL REFERENCES client_data.assets(asset_id) ON DELETE CASCADE,
+    source_device_id TEXT NOT NULL,
+    target_device_id TEXT NOT NULL,
     connection_type VARCHAR(50) DEFAULT 'electrical', -- 'electrical', 'data', 'control'
-    flow_direction VARCHAR(20) DEFAULT 'downstream', -- 'downstream', 'upstream', 'bidirectional'
-    hierarchy_level_diff INTEGER DEFAULT 1, -- Level difference (usually 1 for adjacent levels)
-    connection_metadata JSONB, -- Additional connection properties (voltage, current rating, etc.)
+    hierarchy_level_source INTEGER NOT NULL,
+    hierarchy_level_target INTEGER NOT NULL,
+    flow_direction VARCHAR(20) DEFAULT 'bidirectional', -- 'upstream', 'downstream', 'bidirectional'
+    connection_strength DECIMAL(5,2) DEFAULT 1.0, -- For weighted connections
     is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    metadata JSONB, -- Additional connection properties
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    
+    CONSTRAINT fk_device_connections_source 
+        FOREIGN KEY (source_device_id) REFERENCES iot_data.redshift_devices(device_id) ON DELETE CASCADE,
+    CONSTRAINT fk_device_connections_target 
+        FOREIGN KEY (target_device_id) REFERENCES iot_data.redshift_devices(device_id) ON DELETE CASCADE,
     
     -- Prevent self-connections
-    CONSTRAINT no_self_connection CHECK (parent_device_id != child_device_id),
-    -- Unique connection per asset
-    UNIQUE(parent_device_id, child_device_id, asset_id)
+    CONSTRAINT chk_device_connections_no_self 
+        CHECK (source_device_id != target_device_id),
+    
+    -- Ensure unique directional connections
+    CONSTRAINT uk_device_connections_source_target 
+        UNIQUE (source_device_id, target_device_id),
+    
+    -- Validate hierarchy levels
+    CONSTRAINT chk_device_connections_hierarchy 
+        CHECK (hierarchy_level_source > 0 AND hierarchy_level_target > 0)
 );
 
--- Indexes for performance
-CREATE INDEX idx_device_connections_parent ON iot_data.device_connections(parent_device_id, asset_id);
-CREATE INDEX idx_device_connections_child ON iot_data.device_connections(child_device_id, asset_id);
-CREATE INDEX idx_device_connections_asset ON iot_data.device_connections(asset_id);
-CREATE INDEX idx_device_connections_active ON iot_data.device_connections(asset_id, is_active) WHERE is_active = true;
-```
+-- 2. REACT FLOW SPECIFIC TABLES
+-- =====================================================
 
-### 1.3 React Flow Layout Data
-
-```sql
--- React Flow specific positioning and layout data
-CREATE TABLE iot_data.device_flow_layouts (
-    layout_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    asset_id UUID NOT NULL REFERENCES client_data.assets(asset_id) ON DELETE CASCADE,
-    device_id TEXT NOT NULL REFERENCES iot_data.redshift_devices(device_id) ON DELETE CASCADE,
-    position_x NUMERIC(10,2) DEFAULT 0,
-    position_y NUMERIC(10,2) DEFAULT 0,
-    node_width NUMERIC(8,2) DEFAULT 150,
-    node_height NUMERIC(8,2) DEFAULT 60,
+-- React Flow Node Positions and Styling
+CREATE TABLE client_data.asset_flow_nodes (
+    node_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_id TEXT NOT NULL,
+    asset_id UUID NOT NULL,
+    position_x DECIMAL(10,2) NOT NULL DEFAULT 0,
+    position_y DECIMAL(10,2) NOT NULL DEFAULT 0,
+    width DECIMAL(8,2) DEFAULT 150,
+    height DECIMAL(8,2) DEFAULT 50,
     node_type VARCHAR(50) DEFAULT 'default', -- 'input', 'output', 'default', 'custom'
-    node_style JSONB, -- Custom styling for React Flow
-    is_hidden BOOLEAN DEFAULT false,
-    z_index INTEGER DEFAULT 1,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    style JSONB, -- React Flow node styling
+    data JSONB, -- Custom node data
+    is_draggable BOOLEAN DEFAULT true,
+    is_selectable BOOLEAN DEFAULT true,
+    is_connectable BOOLEAN DEFAULT true,
+    z_index INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     
-    UNIQUE(asset_id, device_id)
+    CONSTRAINT fk_asset_flow_nodes_device 
+        FOREIGN KEY (device_id) REFERENCES iot_data.redshift_devices(device_id) ON DELETE CASCADE,
+    CONSTRAINT fk_asset_flow_nodes_asset 
+        FOREIGN KEY (asset_id) REFERENCES client_data.assets(asset_id) ON DELETE CASCADE,
+    
+    -- Ensure unique device per asset for React Flow
+    CONSTRAINT uk_asset_flow_nodes_device_asset 
+        UNIQUE (device_id, asset_id)
 );
 
--- Indexes
-CREATE INDEX idx_device_flow_layouts_asset ON iot_data.device_flow_layouts(asset_id);
-CREATE INDEX idx_device_flow_layouts_visible ON iot_data.device_flow_layouts(asset_id, is_hidden) WHERE is_hidden = false;
-```
-### 1.4 Computed Hierarchy Levels Cache
-
-```sql
--- Cache table for computed hierarchy levels to improve performance
-CREATE TABLE iot_data.device_hierarchy_cache (
-    cache_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    asset_id UUID NOT NULL REFERENCES client_data.assets(asset_id) ON DELETE CASCADE,
-    device_id TEXT NOT NULL REFERENCES iot_data.redshift_devices(device_id) ON DELETE CASCADE,
-    computed_level INTEGER NOT NULL,
-    path_to_root TEXT[], -- Array of device_ids showing path to root
-    is_root BOOLEAN DEFAULT false,
-    is_leaf BOOLEAN DEFAULT false,
-    last_computed TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+-- React Flow Edge Styling and Behavior
+CREATE TABLE client_data.asset_flow_edges (
+    edge_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    connection_id UUID NOT NULL,
+    asset_id UUID NOT NULL,
+    edge_type VARCHAR(50) DEFAULT 'default', -- 'default', 'straight', 'step', 'smoothstep'
+    animated BOOLEAN DEFAULT false,
+    style JSONB, -- Edge styling (color, width, etc.)
+    label VARCHAR(255),
+    label_style JSONB,
+    marker_end JSONB, -- Arrow markers
+    marker_start JSONB,
+    z_index INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     
-    UNIQUE(asset_id, device_id)
+    CONSTRAINT fk_asset_flow_edges_connection 
+        FOREIGN KEY (connection_id) REFERENCES client_data.device_connections(connection_id) ON DELETE CASCADE,
+    CONSTRAINT fk_asset_flow_edges_asset 
+        FOREIGN KEY (asset_id) REFERENCES client_data.assets(asset_id) ON DELETE CASCADE,
+    
+    -- Ensure unique connection per asset for React Flow
+    CONSTRAINT uk_asset_flow_edges_connection_asset 
+        UNIQUE (connection_id, asset_id)
 );
 
--- Indexes
-CREATE INDEX idx_hierarchy_cache_asset_level ON iot_data.device_hierarchy_cache(asset_id, computed_level);
-CREATE INDEX idx_hierarchy_cache_roots ON iot_data.device_hierarchy_cache(asset_id, is_root) WHERE is_root = true;
-```
-## 2. Enhanced Existing Tables
+-- React Flow Node Positions and Styling
+CREATE TABLE client_data.location_flow_nodes (
+    node_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_id TEXT NOT NULL,
+    location_id UUID NOT NULL,
+    position_x DECIMAL(10,2) NOT NULL DEFAULT 0,
+    position_y DECIMAL(10,2) NOT NULL DEFAULT 0,
+    width DECIMAL(8,2) DEFAULT 150,
+    height DECIMAL(8,2) DEFAULT 50,
+    node_type VARCHAR(50) DEFAULT 'default', -- 'input', 'output', 'default', 'custom'
+    style JSONB, -- React Flow node styling
+    data JSONB, -- Custom node data
+    is_draggable BOOLEAN DEFAULT true,
+    is_selectable BOOLEAN DEFAULT true,
+    is_connectable BOOLEAN DEFAULT true,
+    z_index INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    
+    CONSTRAINT fk_location_flow_nodes_device 
+        FOREIGN KEY (device_id) REFERENCES iot_data.redshift_devices(device_id) ON DELETE CASCADE,
+    CONSTRAINT fk_location_flow_nodes_asset 
+        FOREIGN KEY (location_id) REFERENCES client_data.locations(location_id) ON DELETE CASCADE,
+    
+    -- Ensure unique device per asset for React Flow
+    CONSTRAINT uk_location_flow_nodes_device_asset 
+        UNIQUE (device_id, location_id)
+);
 
-### 2.1 Enhance Asset Types for Better React Flow Integration
+-- React Flow Edge Styling and Behavior
+CREATE TABLE client_data.location_flow_edges (
+    edge_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    connection_id UUID NOT NULL,
+    location_id UUID NOT NULL,
+    edge_type VARCHAR(50) DEFAULT 'default', -- 'default', 'straight', 'step', 'smoothstep'
+    animated BOOLEAN DEFAULT false,
+    style JSONB, -- Edge styling (color, width, etc.)
+    label VARCHAR(255),
+    label_style JSONB,
+    marker_end JSONB, -- Arrow markers
+    marker_start JSONB,
+    z_index INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    
+    CONSTRAINT fk_location_flow_edges_connection 
+        FOREIGN KEY (connection_id) REFERENCES client_data.device_connections(connection_id) ON DELETE CASCADE,
+    CONSTRAINT fk_location_flow_edges_asset 
+        FOREIGN KEY (location_id) REFERENCES client_data.locations(location_id) ON DELETE CASCADE,
+    
+    -- Ensure unique connection per asset for React Flow
+    CONSTRAINT uk_location_flow_edges_connection_asset 
+        UNIQUE (connection_id, location_id)
+);
 
-```sql
--- Add React Flow specific metadata to asset_types
-ALTER TABLE iot_data.asset_types 
-ADD COLUMN default_layout_config JSONB,
-ADD COLUMN flow_direction VARCHAR(20) DEFAULT 'top-bottom', -- 'top-bottom', 'left-right', 'bottom-top', 'right-left'
-ADD COLUMN auto_layout_enabled BOOLEAN DEFAULT true;
+-- 3. ENHANCED EXISTING TABLES
+-- =====================================================
 
--- Update existing records with default values
-UPDATE iot_data.asset_types 
-SET default_layout_config = '{
-    "nodeSpacing": {"x": 200, "y": 150},
-    "levelSpacing": 200,
-    "nodeDefaults": {
-        "width": 150,
-        "height": 60,
-        "style": {"border": "1px solid #ddd", "borderRadius": "8px"}
-    }
-}'::jsonb
-WHERE default_layout_config IS NULL;
-```
-## 3. Views for React Flow Integration
+-- Add React Flow and hierarchy columns to redshift_devices
+ALTER TABLE iot_data.redshift_devices 
+ADD COLUMN IF NOT EXISTS hierarchy_level INTEGER DEFAULT 1,
+ADD COLUMN IF NOT EXISTS is_source_device BOOLEAN DEFAULT false,
+ADD COLUMN IF NOT EXISTS device_category VARCHAR(100), -- 'meter', 'transformer', 'switch', 'sensor'
+ADD COLUMN IF NOT EXISTS react_flow_metadata JSONB; -- Additional React Flow specific data
 
-### 3.1 Complete Device Map View
+-- Add computed level validation
+ALTER TABLE iot_data.redshift_devices 
+ADD CONSTRAINT chk_redshift_devices_hierarchy_level 
+    CHECK (hierarchy_level > 0 AND hierarchy_level <= 100);
 
-```sql
--- Complete device topology for an asset
-CREATE OR REPLACE VIEW iot_data.v_asset_device_map AS
+-- Update level column to be integer instead of varchar
+-- (This requires careful migration in production)
+-- ALTER TABLE iot_data.redshift_devices ALTER COLUMN level TYPE INTEGER USING level::INTEGER;
+
+-- 4. INDEXES FOR PERFORMANCE
+-- =====================================================
+
+-- Asset-Device relationships
+CREATE INDEX idx_asset_devices_asset_id ON client_data.asset_devices(asset_id);
+CREATE INDEX idx_asset_devices_device_id ON client_data.asset_devices(device_id);
+CREATE INDEX idx_asset_devices_active ON client_data.asset_devices(is_active) WHERE is_active = true;
+
+-- Device connections
+CREATE INDEX idx_device_connections_source ON client_data.device_connections(source_device_id);
+CREATE INDEX idx_device_connections_target ON client_data.device_connections(target_device_id);
+CREATE INDEX idx_device_connections_hierarchy_source ON client_data.device_connections(hierarchy_level_source);
+CREATE INDEX idx_device_connections_hierarchy_target ON client_data.device_connections(hierarchy_level_target);
+CREATE INDEX idx_device_connections_active ON client_data.device_connections(is_active) WHERE is_active = true;
+
+-- React Flow nodes
+CREATE INDEX idx_asset_flow_nodes_device_asset ON client_data.asset_flow_nodes(device_id, asset_id);
+CREATE INDEX idx_asset_flow_nodes_position ON client_data.asset_flow_nodes(position_x, position_y);
+
+-- React Flow edges
+CREATE INDEX idx_asset_flow_edges_connection ON client_data.asset_flow_edges(connection_id);
+CREATE INDEX idx_asset_flow_edges_asset ON client_data.asset_flow_edges(asset_id);
+
+-- React Flow nodes
+CREATE INDEX idx_location_flow_nodes_device_asset ON client_data.location_flow_nodes(device_id, location_id);
+CREATE INDEX idx_location_flow_nodes_position ON client_data.location_flow_nodes(position_x, position_y);
+
+-- React Flow edges
+CREATE INDEX idx_location_flow_edges_connection ON client_data.location_flow_edges(connection_id);
+CREATE INDEX idx_location_flow_edges_asset ON client_data.location_flow_edges(location_id);
+
+
+-- Enhanced device indexes
+CREATE INDEX idx_redshift_devices_hierarchy_level ON iot_data.redshift_devices(hierarchy_level);
+CREATE INDEX idx_redshift_devices_source ON iot_data.redshift_devices(is_source_device) WHERE is_source_device = true;
+CREATE INDEX idx_redshift_devices_asset_level ON iot_data.redshift_devices(asset_id, hierarchy_level);
+
+-- 5. VIEWS FOR DATA ACCESS
+-- =====================================================
+
+-- Complete Device Map for an Asset
+CREATE OR REPLACE VIEW client_data.asset_flow_device_map AS
 SELECT 
     a.asset_id,
     a.asset_name,
     d.device_id,
     d.device_name,
-    d.device_type_id,
-    dt.type_name as device_type_name,
-    d.level as original_level,
-    dhc.computed_level,
-    dhc.is_root,
-    dhc.is_leaf,
-    dhc.path_to_root,
-    ad.role as device_role,
-    ad.is_primary,
-    dfl.position_x,
-    dfl.position_y,
-    dfl.node_width,
-    dfl.node_height,
-    dfl.node_type,
-    dfl.node_style,
+    d.hierarchy_level,
+    d.is_source_device,
+    d.device_category,
     d.is_incomer,
     d.transformer,
     d.phase_type,
-    d.is_active,
-    d.metadata as device_metadata
+    ad.role as asset_role,
+    -- React Flow node data
+    afn.position_x,
+    afn.position_y,
+    afn.width,
+    afn.height,
+    afn.node_type,
+    afn.style as node_style,
+    afn.data as node_data,
+    -- Connection count
+    (SELECT COUNT(*) FROM client_data.device_connections dc 
+     WHERE dc.source_device_id = d.device_id OR dc.target_device_id = d.device_id) as connection_count
 FROM client_data.assets a
-JOIN iot_data.asset_devices ad ON a.asset_id = ad.asset_id
+JOIN client_data.asset_devices ad ON a.asset_id = ad.asset_id
 JOIN iot_data.redshift_devices d ON ad.device_id = d.device_id
-LEFT JOIN iot_data.device_types dt ON d.device_type_id::uuid = dt.device_type_id
-LEFT JOIN iot_data.device_hierarchy_cache dhc ON a.asset_id = dhc.asset_id AND d.device_id = dhc.device_id
-LEFT JOIN iot_data.device_flow_layouts dfl ON a.asset_id = dfl.asset_id AND d.device_id = dfl.device_id
-WHERE d.is_active = true;
-```
-### 3.2 Device Connections View
+LEFT JOIN client_data.asset_flow_nodes afn ON d.device_id = afn.device_id AND a.asset_id = afn.asset_id
+WHERE ad.is_active = true AND d.is_active = true;
 
-```sql
--- Device connections with hierarchy information
-CREATE OR REPLACE VIEW iot_data.v_device_connections AS
+-- Complete Device Map for a location
+CREATE OR REPLACE VIEW client_data.location_flow_device_map AS
+SELECT 
+    l.location_id,
+    l.location_name,
+    d.device_id,
+    d.device_name,
+    d.hierarchy_level,
+    d.is_source_device,
+    d.device_category,
+    d.is_incomer,
+    d.transformer,
+    d.phase_type,
+    ad.role as asset_role,
+    -- React Flow node data
+    lfn.position_x,
+    lfn.position_y,
+    lfn.width,
+    lfn.height,
+    lfn.node_type,
+    lfn.style as node_style,
+    lfn.data as node_data,
+    -- Connection count
+    (SELECT COUNT(*) FROM client_data.device_connections dc 
+     WHERE dc.source_device_id = d.device_id OR dc.target_device_id = d.device_id) as connection_count
+FROM client_data.locations l
+JOIN iot_data.redshift_devices d ON l.location_id = d.location_id
+LEFT JOIN client_data.location_flow_nodes lfn ON d.device_id = lfn.device_id AND l.location_id = lfn.location_id
+WHERE d.is_active = true;
+
+-- Device Connections with React Flow Edge Data
+CREATE OR REPLACE VIEW client_data.v_device_connections_map AS
 SELECT 
     dc.connection_id,
-    dc.asset_id,
-    dc.parent_device_id,
-    pd.device_name as parent_device_name,
-    dc.child_device_id,
-    cd.device_name as child_device_name,
+    dc.source_device_id,
+    dc.target_device_id,
     dc.connection_type,
+    dc.hierarchy_level_source,
+    dc.hierarchy_level_target,
     dc.flow_direction,
-    dc.hierarchy_level_diff,
-    dc.connection_metadata,
-    phc.computed_level as parent_level,
-    chc.computed_level as child_level,
-    dc.is_active
-FROM iot_data.device_connections dc
-JOIN iot_data.redshift_devices pd ON dc.parent_device_id = pd.device_id
-JOIN iot_data.redshift_devices cd ON dc.child_device_id = cd.device_id
-LEFT JOIN iot_data.device_hierarchy_cache phc ON dc.asset_id = phc.asset_id AND dc.parent_device_id = phc.device_id
-LEFT JOIN iot_data.device_hierarchy_cache chc ON dc.asset_id = chc.asset_id AND dc.child_device_id = chc.device_id
+    dc.connection_strength,
+    -- Source device info
+    ds.device_name as source_device_name,
+    ds.device_category as source_device_category,
+    -- React Flow edge data
+    rfe.edge_type,
+    rfe.animated,
+    rfe.style as edge_style,
+    rfe.label as edge_label,
+    rfe.label_style,
+    rfe.marker_end,
+    rfe.marker_start,
+    -- Asset context
+    rfe.asset_id
+FROM client_data.device_connections dc
+JOIN iot_data.redshift_devices ds ON dc.source_device_id = ds.device_id
+LEFT JOIN client_data.react_flow_edges rfe ON dc.connection_id = rfe.connection_id
 WHERE dc.is_active = true;
-```
-### 3.3 Adjacent Level View
 
-```sql
--- Filtered view for adjacent levels
-CREATE OR REPLACE VIEW iot_data.v_adjacent_level_map AS
+-- Adjacent Level View (for filtering specific hierarchy levels)
+CREATE OR REPLACE VIEW client_data.v_adjacent_level_map AS
 SELECT 
-    vdc.*,
-    CASE 
-        WHEN vdc.parent_level IS NOT NULL AND vdc.child_level IS NOT NULL 
-        THEN ABS(vdc.parent_level - vdc.child_level) 
-        ELSE NULL 
-    END as actual_level_diff
-FROM iot_data.v_device_connections vdc
-WHERE vdc.parent_level IS NOT NULL 
-  AND vdc.child_level IS NOT NULL
-  AND ABS(vdc.parent_level - vdc.child_level) <= 1; -- Adjacent levels only
-```
-### 3.4 React Flow Data View
+    asset_id,
+    connection_id,
+    source_device_id,
+    target_device_id,
+    source_device_name,
+    target_device_name,
+    hierarchy_level_source,
+    hierarchy_level_target,
+    connection_type,
+    flow_direction,
+    edge_type,
+    animated,
+    edge_style,
+    edge_label
+FROM client_data.v_device_connections_map
+WHERE ABS(hierarchy_level_source - hierarchy_level_target) = 1; -- Adjacent levels only
 
-```sql
--- Formatted data ready for React Flow consumption
-CREATE OR REPLACE VIEW iot_data.v_react_flow_data AS
-WITH nodes AS (
-    SELECT 
-        vadm.asset_id,
-        jsonb_build_object(
-            'id', vadm.device_id,
-            'type', COALESCE(vadm.node_type, 'default'),
-            'position', jsonb_build_object(
-                'x', COALESCE(vadm.position_x, 0),
-                'y', COALESCE(vadm.position_y, 0)
-            ),
-            'data', jsonb_build_object(
-                'label', vadm.device_name,
-                'deviceType', vadm.device_type_name,
-                'level', vadm.computed_level,
-                'isRoot', vadm.is_root,
-                'isLeaf', vadm.is_leaf,
-                'isIncomer', vadm.is_incomer,
-                'isTransformer', vadm.transformer,
-                'phaseType', vadm.phase_type,
-                'role', vadm.device_role,
-                'isPrimary', vadm.is_primary,
-                'metadata', vadm.device_metadata
-            ),
-            'style', COALESCE(vadm.node_style, '{}'::jsonb),
-            'width', COALESCE(vadm.node_width, 150),
-            'height', COALESCE(vadm.node_height, 60)
-        ) as node_data
-    FROM iot_data.v_asset_device_map vadm
-),
-edges AS (
-    SELECT 
-        vdc.asset_id,
-        jsonb_build_object(
-            'id', vdc.connection_id::text,
-            'source', vdc.parent_device_id,
-            'target', vdc.child_device_id,
-            'type', CASE 
-                WHEN vdc.connection_type = 'electrical' THEN 'smoothstep'
-                ELSE 'default'
-            END,
-            'animated', CASE WHEN vdc.flow_direction = 'bidirectional' THEN true ELSE false END,
-            'data', jsonb_build_object(
-                'connectionType', vdc.connection_type,
-                'flowDirection', vdc.flow_direction,
-                'levelDiff', vdc.hierarchy_level_diff,
-                'metadata', vdc.connection_metadata
-            ),
-            'style', jsonb_build_object(
-                'stroke', CASE 
-                    WHEN vdc.connection_type = 'electrical' THEN '#ff6b6b'
-                    WHEN vdc.connection_type = 'data' THEN '#4ecdc4'
-                    ELSE '#95a5a6'
-                END,
-                'strokeWidth', 2
+-- React Flow Complete Data View
+CREATE OR REPLACE VIEW client_data.v_react_flow_data AS
+SELECT 
+    a.asset_id,
+    a.asset_name,
+    -- Nodes array
+    jsonb_agg(DISTINCT jsonb_build_object(
+        'id', d.device_id,
+        'type', COALESCE(rfn.node_type, 'default'),
+        'position', jsonb_build_object('x', COALESCE(rfn.position_x, 0), 'y', COALESCE(rfn.position_y, 0)),
+        'data', jsonb_build_object(
+            'label', d.device_name,
+            'deviceId', d.device_id,
+            'hierarchyLevel', d.hierarchy_level,
+            'isSource', d.is_source_device,
+            'category', d.device_category,
+            'isIncomer', d.is_incomer,
+            'transformer', d.transformer,
+            'phaseType', d.phase_type,
+            'customData', COALESCE(rfn.data, '{}'::jsonb)
+        ),
+        'style', COALESCE(rfn.style, '{}'::jsonb),
+        'draggable', COALESCE(rfn.is_draggable, true),
+        'selectable', COALESCE(rfn.is_selectable, true),
+        'connectable', COALESCE(rfn.is_connectable, true)
+    )) FILTER (WHERE d.device_id IS NOT NULL) as nodes,
+    
+    -- Edges array  
+    jsonb_agg(DISTINCT jsonb_build_object(
+        'id', dc.connection_id::text,
+        'source', dc.source_device_id,
+        'target', dc.target_device_id,
+        'type', COALESCE(rfe.edge_type, 'default'),
+        'animated', COALESCE(rfe.animated, false),
+        'style', COALESCE(rfe.style, '{}'::jsonb),
+        'label', rfe.label,
+        'labelStyle', COALESCE(rfe.label_style, '{}'::jsonb),
+        'markerEnd', COALESCE(rfe.marker_end, jsonb_build_object('type', 'arrowclosed')),
+        'data', jsonb_build_object(
+            'connectionType', dc.connection_type,
+            'flowDirection', dc.flow_direction,
+            'connectionStrength', dc.connection_strength,
+            'hierarchyLevels', jsonb_build_object(
+                'source', dc.hierarchy_level_source,
+                'target', dc.hierarchy_level_target
             )
-        ) as edge_data
-    FROM iot_data.v_device_connections vdc
-)
-SELECT 
-    asset_id,
-    'nodes' as data_type,
-    jsonb_agg(node_data) as flow_data
-FROM nodes
-GROUP BY asset_id
+        )
+    )) FILTER (WHERE dc.connection_id IS NOT NULL) as edges,
+    
+    -- Viewport data
+    jsonb_build_object(
+        'zoom', COALESCE(rfv.zoom, 1.0),
+        'x', COALESCE(rfv.pan_x, 0),
+        'y', COALESCE(rfv.pan_y, 0)
+    ) as viewport
+    
+FROM client_data.assets a
+LEFT JOIN client_data.asset_devices ad ON a.asset_id = ad.asset_id AND ad.is_active = true
+LEFT JOIN iot_data.redshift_devices d ON ad.device_id = d.device_id AND d.is_active = true
+LEFT JOIN client_data.react_flow_nodes rfn ON d.device_id = rfn.device_id AND a.asset_id = rfn.asset_id
+LEFT JOIN client_data.device_connections dc ON (dc.source_device_id = d.device_id OR dc.target_device_id = d.device_id) 
+    AND dc.is_active = true
+LEFT JOIN client_data.react_flow_edges rfe ON dc.connection_id = rfe.connection_id AND a.asset_id = rfe.asset_id
+LEFT JOIN client_data.react_flow_viewports rfv ON a.asset_id = rfv.asset_id AND rfv.is_default = true
+GROUP BY a.asset_id, a.asset_name, rfv.zoom, rfv.pan_x, rfv.pan_y;
 
-UNION ALL
+-- 6. FUNCTIONS FOR HIERARCHY MANAGEMENT
+-- =====================================================
 
-SELECT 
-    asset_id,
-    'edges' as data_type,
-    jsonb_agg(edge_data) as flow_data
-FROM edges
-GROUP BY asset_id;
-```
-
-## 4. Functions for Hierarchy Management
-
-### 4.1 Function to Compute Device Hierarchy Levels
-
-```sql
--- Function to compute and cache device hierarchy levels
-CREATE OR REPLACE FUNCTION iot_data.compute_device_hierarchy(p_asset_id UUID)
-RETURNS VOID AS $$
-DECLARE
-    rec RECORD;
+-- Function to calculate and update hierarchy levels based on connections
+CREATE OR REPLACE FUNCTION client_data.calculate_device_hierarchy_levels(p_asset_id UUID)
+RETURNS TABLE(device_id TEXT, calculated_level INTEGER) AS $$
 BEGIN
-    -- Clear existing cache for this asset
-    DELETE FROM iot_data.device_hierarchy_cache WHERE asset_id = p_asset_id;
-    
-    -- Insert computed hierarchy using recursive CTE
-    WITH RECURSIVE device_hierarchy AS (
-        -- Base case: root devices (incomers or devices with no parents)
-        SELECT 
-            ad.device_id,
-            1 as level,
-            ARRAY[ad.device_id] as path,
-            true as is_root,
-            false as is_leaf
-        FROM iot_data.asset_devices ad
-        JOIN iot_data.redshift_devices d ON ad.device_id = d.device_id
-        WHERE ad.asset_id = p_asset_id
-          AND d.is_active = true
-          AND (d.is_incomer = true OR NOT EXISTS (
-              SELECT 1 FROM iot_data.device_connections dc 
-              WHERE dc.child_device_id = ad.device_id 
-                AND dc.asset_id = p_asset_id 
-                AND dc.is_active = true
-          ))
-        
-        UNION ALL
-        
-        -- Recursive case: child devices
-        SELECT 
-            dc.child_device_id,
-            dh.level + 1,
-            dh.path || dc.child_device_id,
-            false as is_root,
-            false as is_leaf
-        FROM device_hierarchy dh
-        JOIN iot_data.device_connections dc ON dh.device_id = dc.parent_device_id
-        WHERE dc.asset_id = p_asset_id 
-          AND dc.is_active = true
-          AND NOT (dc.child_device_id = ANY(dh.path)) -- Prevent cycles
-    )
-    INSERT INTO iot_data.device_hierarchy_cache (
-        asset_id, device_id, computed_level, path_to_root, is_root, is_leaf
-    )
-    SELECT 
-        p_asset_id,
-        dh.device_id,
-        dh.level,
-        dh.path,
-        dh.is_root,
-        NOT EXISTS (
-            SELECT 1 FROM iot_data.device_connections dc 
-            WHERE dc.parent_device_id = dh.device_id 
-              AND dc.asset_id = p_asset_id 
-              AND dc.is_active = true
-        ) as is_leaf
-    FROM device_hierarchy dh;
-    
-    -- Update the cache timestamp
-    UPDATE iot_data.device_hierarchy_cache 
-    SET last_computed = NOW() 
+    -- Reset all levels to NULL for recalculation
+    UPDATE iot_data.redshift_devices 
+    SET hierarchy_level = NULL 
     WHERE asset_id = p_asset_id;
-END;
-$$ LANGUAGE plpgsql;
-```
-### 4.2 Function for Auto-Layout Generation
-
-```sql
--- Function to generate automatic layout for React Flow
-CREATE OR REPLACE FUNCTION iot_data.generate_auto_layout(p_asset_id UUID)
-RETURNS VOID AS $$
-DECLARE
-    layout_config JSONB;
-    node_spacing_x NUMERIC := 200;
-    node_spacing_y NUMERIC := 150;
-    level_spacing NUMERIC := 200;
-    rec RECORD;
-    level_counts JSONB := '{}';
-    level_positions JSONB := '{}';
-BEGIN
-    -- Get layout configuration from asset type
-    SELECT at.default_layout_config INTO layout_config
-    FROM client_data.assets a
-    JOIN iot_data.asset_types at ON a.asset_type_id = at.asset_type_id
-    WHERE a.asset_id = p_asset_id;
     
-    -- Extract spacing values from config
-    IF layout_config IS NOT NULL THEN
-        node_spacing_x := COALESCE((layout_config->'nodeSpacing'->>'x')::numeric, 200);
-        node_spacing_y := COALESCE((layout_config->'nodeSpacing'->>'y')::numeric, 150);
-        level_spacing := COALESCE((layout_config->>'levelSpacing')::numeric, 200);
-    END IF;
+    -- Set source devices to level 1
+    UPDATE iot_data.redshift_devices 
+    SET hierarchy_level = 1 
+    WHERE asset_id = p_asset_id AND is_source_device = true;
     
-    -- Count devices per level
-    FOR rec IN 
-        SELECT computed_level, COUNT(*) as device_count
-        FROM iot_data.device_hierarchy_cache 
-        WHERE asset_id = p_asset_id
-        GROUP BY computed_level
-    LOOP
-        level_counts := jsonb_set(level_counts, ARRAY[rec.computed_level::text], to_jsonb(rec.device_count));
-        level_positions := jsonb_set(level_positions, ARRAY[rec.computed_level::text], to_jsonb(0));
+    -- Iteratively calculate levels based on connections
+    FOR i IN 2..100 LOOP -- Prevent infinite loops
+        UPDATE iot_data.redshift_devices d
+        SET hierarchy_level = i
+        WHERE d.asset_id = p_asset_id 
+        AND d.hierarchy_level IS NULL
+        AND EXISTS (
+            SELECT 1 FROM client_data.device_connections dc
+            JOIN iot_data.redshift_devices ds ON dc.source_device_id = ds.device_id
+            WHERE dc.target_device_id = d.device_id
+            AND ds.hierarchy_level = i - 1
+            AND dc.is_active = true
+        );
+        
+        -- Exit if no more devices were updated
+        EXIT WHEN NOT FOUND;
     END LOOP;
     
-    -- Generate positions for each device
-    FOR rec IN
-        SELECT device_id, computed_level
-        FROM iot_data.device_hierarchy_cache
-        WHERE asset_id = p_asset_id
-        ORDER BY computed_level, device_id
-    LOOP
-        DECLARE
-            current_pos INTEGER := (level_positions->>rec.computed_level::text)::integer;
-            total_devices INTEGER := (level_counts->>rec.computed_level::text)::integer;
-            start_x NUMERIC := -(total_devices - 1) * node_spacing_x / 2;
-            pos_x NUMERIC := start_x + current_pos * node_spacing_x;
-            pos_y NUMERIC := (rec.computed_level - 1) * level_spacing;
-        BEGIN
-            -- Insert or update layout position
-            INSERT INTO iot_data.device_flow_layouts (
-                asset_id, device_id, position_x, position_y
-            ) VALUES (
-                p_asset_id, rec.device_id, pos_x, pos_y
-            )
-            ON CONFLICT (asset_id, device_id) 
-            DO UPDATE SET 
-                position_x = EXCLUDED.position_x,
-                position_y = EXCLUDED.position_y,
-                updated_at = NOW();
-            
-            -- Update position counter
-            level_positions := jsonb_set(level_positions, ARRAY[rec.computed_level::text], to_jsonb(current_pos + 1));
-        END;
-    END LOOP;
+    -- Return the calculated levels
+    RETURN QUERY
+    SELECT d.device_id, d.hierarchy_level
+    FROM iot_data.redshift_devices d
+    WHERE d.asset_id = p_asset_id
+    ORDER BY d.hierarchy_level, d.device_name;
 END;
 $$ LANGUAGE plpgsql;
-```
 
-## 5. Triggers for Automatic Updates
-
-### 5.1 Trigger to Update Hierarchy Cache
-
-```sql
--- Function to trigger hierarchy recalculation
-CREATE OR REPLACE FUNCTION iot_data.trigger_hierarchy_update()
+-- Function to prevent circular dependencies
+CREATE OR REPLACE FUNCTION client_data.check_circular_dependency()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- Schedule hierarchy recalculation for affected asset(s)
-    IF TG_OP = 'DELETE' THEN
-        PERFORM iot_data.compute_device_hierarchy(OLD.asset_id);
-        RETURN OLD;
-    ELSE
-        PERFORM iot_data.compute_device_hierarchy(NEW.asset_id);
-        RETURN NEW;
+    -- Check if adding this connection would create a cycle
+    IF EXISTS (
+        WITH RECURSIVE connection_path AS (
+            -- Start from the new target device
+            SELECT NEW.target_device_id as device_id, 1 as depth
+            UNION ALL
+            SELECT dc.target_device_id, cp.depth + 1
+            FROM client_data.device_connections dc
+            JOIN connection_path cp ON dc.source_device_id = cp.device_id
+            WHERE cp.depth < 100 -- Prevent infinite recursion
+        )
+        SELECT 1 FROM connection_path 
+        WHERE device_id = NEW.source_device_id
+    ) THEN
+        RAISE EXCEPTION 'Connection would create a circular dependency';
     END IF;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create triggers
-CREATE TRIGGER trg_device_connections_hierarchy_update
-    AFTER INSERT OR UPDATE OR DELETE ON iot_data.device_connections
-    FOR EACH ROW EXECUTE FUNCTION iot_data.trigger_hierarchy_update();
-
-CREATE TRIGGER trg_asset_devices_hierarchy_update
-    AFTER INSERT OR UPDATE OR DELETE ON iot_data.asset_devices
-    FOR EACH ROW EXECUTE FUNCTION iot_data.trigger_hierarchy_update();
-```
-
-### 5.2 Trigger for Updated Timestamps
-
-```sql
--- Function to update timestamps
-CREATE OR REPLACE FUNCTION iot_data.update_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
+    
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- Apply to relevant tables
-CREATE TRIGGER trg_asset_devices_updated_at
-    BEFORE UPDATE ON iot_data.asset_devices
-    FOR EACH ROW EXECUTE FUNCTION iot_data.update_updated_at();
+-- Create trigger to prevent circular dependencies
+CREATE TRIGGER trg_device_connections_check_circular
+    BEFORE INSERT OR UPDATE ON client_data.device_connections
+    FOR EACH ROW EXECUTE FUNCTION client_data.check_circular_dependency();
 
-CREATE TRIGGER trg_device_connections_updated_at
-    BEFORE UPDATE ON iot_data.device_connections
-    FOR EACH ROW EXECUTE FUNCTION iot_data.update_updated_at();
+-- 7. SAMPLE DATA INSERTION
+-- =====================================================
 
-CREATE TRIGGER trg_device_flow_layouts_updated_at
-    BEFORE UPDATE ON iot_data.device_flow_layouts
-    FOR EACH ROW EXECUTE FUNCTION iot_data.update_updated_at();
-```
+-- Sample Asset Type (if not exists)
+INSERT INTO client_data.asset_types (asset_type_name, description, category, parameters, metadata)
+VALUES (
+    'Industrial Building',
+    'Standard industrial building with electrical distribution',
+    'Building',
+    ARRAY['power_consumption', 'voltage_levels', 'load_distribution'],
+    '{"max_devices": 1000, "supports_hierarchy": true, "react_flow_enabled": true}'::jsonb
+) ON CONFLICT (asset_type_name) DO NOTHING;
 
-## 6. Sample Data and Usage Examples
+-- Sample Asset
+INSERT INTO client_data.assets (asset_name, location_id, client_id, asset_type_id)
+SELECT 
+    'Demo Industrial Facility',
+    '00000000-0000-0000-0000-000000000001'::uuid, -- Replace with actual location_id
+    '00000000-0000-0000-0000-000000000001'::uuid, -- Replace with actual client_id
+    asset_type_id
+FROM client_data.asset_types 
+WHERE asset_type_name = 'Industrial Building'
+ON CONFLICT DO NOTHING;
 
-### 6.1 Sample Data Insertion
+-- Sample Devices with hierarchy
+INSERT INTO iot_data.redshift_devices (
+    device_name, device_type_id, topic_id, location_id, level, asset_id, 
+    hierarchy_level, is_source_device, device_category, is_incomer, metadata
+) VALUES 
+    ('Main Incomer', 'device_type_1', 'topic_1', '00000000-0000-0000-0000-000000000001'::uuid, '1', 
+     (SELECT asset_id FROM client_data.assets WHERE asset_name = 'Demo Industrial Facility' LIMIT 1),
+     1, true, 'meter', true, '{"capacity": "1000A", "voltage": "400V"}'::jsonb),
+    ('Distribution Panel A', 'device_type_2', 'topic_2', '00000000-0000-0000-0000-000000000001'::uuid, '2',
+     (SELECT asset_id FROM client_data.assets WHERE asset_name = 'Demo Industrial Facility' LIMIT 1),
+     2, false, 'meter', false, '{"capacity": "400A"}'::jsonb),
+    ('Production Line 1', 'device_type_3', 'topic_3', '00000000-0000-0000-0000-000000000001'::uuid, '3',
+     (SELECT asset_id FROM client_data.assets WHERE asset_name = 'Demo Industrial Facility' LIMIT 1),
+     3, false, 'meter', false, '{"load_type": "motor_load"}'::jsonb)
+ON CONFLICT (device_id) DO NOTHING;
 
-```sql
--- Sample asset type with React Flow configuration
-INSERT INTO iot_data.asset_types (asset_type_name, description, category, default_layout_config) VALUES
-('Industrial Facility', 'Large industrial facility with complex electrical hierarchy', 'Industrial', 
-'{
-    "nodeSpacing": {"x": 250, "y": 180},
-    "levelSpacing": 220,
-    "nodeDefaults": {
-        "width": 180,
-        "height": 80,
-        "style": {"border": "2px solid #3498db", "borderRadius": "12px", "backgroundColor": "#ecf0f1"}
-    }
-}'::jsonb);
+-- 8. UTILITY QUERIES
+-- =====================================================
 
--- Sample devices and connections
--- (Assuming you have existing asset and device data)
-
--- Create asset-device relationships
-INSERT INTO iot_data.asset_devices (asset_id, device_id, is_primary, role) VALUES
-('your-asset-id', 'main-incomer-device-id', true, 'main_incomer'),
-('your-asset-id', 'transformer-device-id', false, 'step_down_transformer'),
-('your-asset-id', 'panel-device-id', false, 'distribution_panel');
-
--- Create device connections
-INSERT INTO iot_data.device_connections (parent_device_id, child_device_id, asset_id, connection_type, flow_direction) VALUES
-('main-incomer-device-id', 'transformer-device-id', 'your-asset-id', 'electrical', 'downstream'),
-('transformer-device-id', 'panel-device-id', 'your-asset-id', 'electrical', 'downstream');
-
--- Compute hierarchy and generate layout
-SELECT iot_data.compute_device_hierarchy('your-asset-id');
-SELECT iot_data.generate_auto_layout('your-asset-id');
-```
-
-### 6.2 Query Examples
-
-```sql
--- Get complete device map for an asset
-SELECT * FROM iot_data.v_asset_device_map 
+-- Query to get complete device map for an asset
+/*
+SELECT * FROM client_data.v_asset_device_map 
 WHERE asset_id = 'your-asset-id'
-ORDER BY computed_level, device_name;
+ORDER BY hierarchy_level, device_name;
+*/
 
--- Get React Flow formatted data
-SELECT 
-    data_type,
-    flow_data
-FROM iot_data.v_react_flow_data 
+-- Query to get React Flow data for an asset
+/*
+SELECT * FROM client_data.v_react_flow_data 
 WHERE asset_id = 'your-asset-id';
+*/
 
--- Get devices at specific level
-SELECT * FROM iot_data.v_asset_device_map 
-WHERE asset_id = 'your-asset-id' AND computed_level = 2;
-
--- Get adjacent level connections (Level 2-3)
-SELECT * FROM iot_data.v_adjacent_level_map 
+-- Query to get adjacent level connections
+/*
+SELECT * FROM client_data.v_adjacent_level_map 
 WHERE asset_id = 'your-asset-id' 
-  AND parent_level = 2 AND child_level = 3;
+AND hierarchy_level_source = 1 AND hierarchy_level_target = 2;
+*/
 
--- Find root devices (incomers)
-SELECT * FROM iot_data.v_asset_device_map 
-WHERE asset_id = 'your-asset-id' AND is_root = true;
-
--- Get device path to root
-SELECT 
-    device_name,
-    computed_level,
-    path_to_root
-FROM iot_data.v_asset_device_map 
-WHERE asset_id = 'your-asset-id' 
-  AND device_id = 'specific-device-id';
+-- Query to calculate hierarchy levels
+/*
+SELECT * FROM client_data.calculate_device_hierarchy_levels('your-asset-id');
+*/
 ```
 
-## 7. Performance Considerations
+## Key Design Decisions Explained:
 
-### 7.1 Additional Indexes
+### 1. **Separation of Concerns**
 
-```sql
--- Composite indexes for common query patterns
-CREATE INDEX idx_asset_devices_composite ON iot_data.asset_devices(asset_id, is_primary, device_id);
-CREATE INDEX idx_device_connections_hierarchy ON iot_data.device_connections(asset_id, parent_device_id, child_device_id);
-CREATE INDEX idx_hierarchy_cache_composite ON iot_data.device_hierarchy_cache(asset_id, computed_level, is_root, is_leaf);
+- **Business Logic**: Asset-device relationships in `client_data` schema
+- **Technical Implementation**: Device connections and React Flow data in `iot_data` schema
+- **Clear boundaries** between core IoT functionality and visualization
 
--- Partial indexes for active records
-CREATE INDEX idx_device_connections_active_asset ON iot_data.device_connections(asset_id, parent_device_id) WHERE is_active = true;
-CREATE INDEX idx_redshift_devices_active_asset ON iot_data.redshift_devices(asset_id) WHERE is_active = true;
-```
-### 7.2 Materialized Views for Large Datasets
+### 2. **Many-to-Many Relationships**
 
-```sql
--- Materialized view for frequently accessed React Flow data
-CREATE MATERIALIZED VIEW iot_data.mv_react_flow_data AS
-SELECT * FROM iot_data.v_react_flow_data;
+- **`asset_devices`**: Handles asset ↔ device relationships with roles
+- **`device_connections`**: Manages device ↔ device network topology
+- **Flexible associations** without breaking existing references
 
--- Create index on materialized view
-CREATE INDEX idx_mv_react_flow_data_asset ON iot_data.mv_react_flow_data(asset_id);
+### 3. **React Flow Integration**
 
--- Function to refresh materialized view
-CREATE OR REPLACE FUNCTION iot_data.refresh_react_flow_data(p_asset_id UUID DEFAULT NULL)
-RETURNS VOID AS $$
-BEGIN
-    IF p_asset_id IS NOT NULL THEN
-        -- Refresh specific asset data (requires PostgreSQL 14+)
-        -- For now, refresh entire view
-        REFRESH MATERIALIZED VIEW iot_data.mv_react_flow_data;
-    ELSE
-        REFRESH MATERIALIZED VIEW iot_data.mv_react_flow_data;
-    END IF;
-END;
-$$ LANGUAGE plpgsql;
-```
+- **Dedicated tables** for nodes, edges, and viewport state
+- **JSONB storage** for flexible styling and custom data
+- **Optimized views** that generate React Flow-compatible JSON
 
-This comprehensive database design provides:
+### 4. **Hierarchy Management**
 
-1. **Flexible many-to-many relationships** between assets and devices
-2. **Hierarchical device connections** with cycle prevention
-3. **React Flow integration** with positioning and styling data
-4. **Performance optimization** through caching and indexing
-5. **Automatic layout generation** based on asset type configurations
-6. **Real-time updates** through triggers
-7. **Backward compatibility** with existing schema
+- **Computed levels** based on source devices and connections
+- **Circular dependency prevention** through triggers
+- **Dynamic recalculation** function for topology changes
 
-The design supports complex device topologies, efficient querying for React Flow visualization, and maintains data integrity while providing the flexibility needed for your IoT energy management system.
+### 5. **Performance Considerations**
+
+- **Strategic indexing** on frequently queried columns
+- **Materialized views** can be added for large datasets
+- **Partitioning options** for time-series device data
+
+### 6. **Backward Compatibility**
+
+- **Existing tables preserved** with minimal changes
+- **New columns added** with defaults to avoid breaking changes
+- **Migration-friendly** design for production deployment
+
+This schema provides a robust foundation for your IoT energy management system with full React Flow integration while maintaining flexibility for future enhancements.
 
 ## Backlink
 [[Asset Types]]

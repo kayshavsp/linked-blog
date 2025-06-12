@@ -209,3 +209,15 @@ SELECT * FROM pg_stat_activity WHERE query LIKE '%foreign%';
     - Since FDWs query external databases instead of storing duplicate data, they help save on Amazon RDS storage costs.
 4. **Cross-Region and Cross-Account Data Access**
     - Foreign servers enable secure data access between PostgreSQL instances across different AWS accounts or regions.
+
+## Increase performance of FDW
+
+#### Server Performance:
+```SQL
+ALTER SERVER remote_server OPTIONS (SET fetch_size '100');
+```
+
+#### Foreign Table Performance:
+```SQL
+ALTER SERVER remote_server OPTIONS (SET fetch_size '10000');
+```
